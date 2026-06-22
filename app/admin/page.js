@@ -37,7 +37,6 @@ export default function AdminPage() {
   const [address, setAddress] = useState('');
   const [loading, setLoading] = useState(false);
   const [user, setUser] = useState(null);
-  const [emailForSignIn, setEmailForSignIn] = useState('');
 
   useEffect(() => {
     if (typeof window !== 'undefined') setOrigin(window.location.origin);
@@ -125,45 +124,21 @@ export default function AdminPage() {
           </div>
         ) : (
           <div className="flex gap-3 items-center">
-            <input
-              className="rounded-2xl border border-slate-300 px-3 py-2"
-              type="email"
-              placeholder="you@example.com"
-              value={emailForSignIn}
-              onChange={(e) => setEmailForSignIn(e.target.value)}
-            />
-            <div className="flex gap-2">
-              <button
-                className="rounded-2xl bg-slate-950 px-4 py-2 text-white"
-                onClick={async () => {
-                  if (!emailForSignIn) return alert('Enter an email to sign in');
-                  if (!supabase || !supabase.auth || typeof supabase.auth.signInWithOtp !== 'function') {
-                    return alert('Auth is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in your environment.');
-                  }
-                  const { error } = await supabase.auth.signInWithOtp({ email: emailForSignIn });
-                  if (error) alert('Sign-in failed: ' + error.message);
-                  else alert('Check your email for the magic link to sign in.');
-                }}
-              >
-                Sign in (magic link)
-              </button>
-
-              <button
-                className="rounded-2xl bg-white border px-4 py-2 text-slate-900"
-                onClick={async () => {
-                  if (!supabase || !supabase.auth || typeof supabase.auth.signInWithOAuth !== 'function') {
-                    return alert('OAuth is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in your environment.');
-                  }
-                  try {
-                    await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: origin } });
-                  } catch (err) {
-                    alert('Google sign-in failed: ' + (err.message || err));
-                  }
-                }}
-              >
-                Sign in with Google
-              </button>
-            </div>
+            <button
+              className="rounded-2xl bg-white border px-4 py-2 text-slate-900 font-medium"
+              onClick={async () => {
+                if (!supabase || !supabase.auth || typeof supabase.auth.signInWithOAuth !== 'function') {
+                  return alert('OAuth is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in your environment.');
+                }
+                try {
+                  await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: origin } });
+                } catch (err) {
+                  alert('Google sign-in failed: ' + (err.message || err));
+                }
+              }}
+            >
+              🔑 Sign in with Google
+            </button>
           </div>
         )}
       </div>
