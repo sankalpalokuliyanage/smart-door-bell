@@ -100,9 +100,29 @@ export default function AdminPage() {
         throw error;
       }
 
-      setDoors(data || []);
-      if (data?.length > 0) {
-        setSelectedDoor((prev) => prev || data[0]);
+      const doorsList = data || [];
+
+      // For private buckets, request short-lived signed URLs from our server endpoint.
+      const withSigned = await Promise.all(
+        doorsList.map(async (d) => {
+          try {
+            const storagePath = `${d.user_id}/${d.door_id_slug}.png`;
+            const resp = await fetch(`/api/signed-url?path=${encodeURIComponent(storagePath)}`);
+            if (resp.ok) {
+              const json = await resp.json();
+              return { ...d, signedUrl: json.signedUrl };
+            }
+          } catch (err) {
+            // ignore and fall back to stored public URL
+          }
+
+          return d;
+        })
+      );
+
+      setDoors(withSigned);
+      if (withSigned?.length > 0) {
+        setSelectedDoor((prev) => prev || withSigned[0]);
       }
     } catch (error) {
       console.error('Failed to fetch doors:', error);
@@ -324,7 +344,7 @@ export default function AdminPage() {
                   <div className="inline-flex rounded-[32px] bg-slate-950 p-5">
                     <img
                       className="h-[220px] w-[220px] rounded-[28px] object-contain"
-                      src={selectedDoor.qr_code_image_url}
+                      src={selectedDoor.signedUrl || selectedDoor.qr_code_image_url}
                       alt={`QR for ${selectedDoor.door_name}`}
                     />
                   </div>
