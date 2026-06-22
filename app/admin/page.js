@@ -115,7 +115,14 @@ export default function AdminPage() {
     setStatusMessage('');
 
     try {
-      await supabase.auth.signInWithOAuth({ provider: 'google' });
+      const result = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo: typeof window !== 'undefined' ? window.location.origin : undefined },
+      });
+
+      if (result?.error) {
+        setErrorMessage(result.error.message || 'Google sign-in failed.');
+      }
     } catch (error) {
       setErrorMessage(error?.message || 'Google sign-in failed.');
     }
