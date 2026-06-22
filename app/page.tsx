@@ -1,65 +1,38 @@
-import Image from "next/image";
+import Link from "next/link";
 
 export default function Home() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+    <main className="flex min-h-screen flex-col items-center justify-center bg-slate-50 px-6 py-16 text-slate-950">
+      <div className="w-full max-w-3xl rounded-3xl border border-slate-200 bg-white p-10 shadow-sm">
+        <h1 className="text-4xl font-semibold">Smart Doorbell</h1>
+        <p className="mt-4 text-lg leading-8 text-slate-600">
+          A simple doorbell app with a host video endpoint and visitor call page. Create a door ID in Admin, then open the host page and scan the visitor QR code.
+        </p>
+
+        <div className="mt-10 grid gap-4 sm:grid-cols-2">
+          <Link
+            href="/admin"
+            className="rounded-2xl bg-slate-950 px-6 py-4 text-center text-white transition hover:bg-slate-800"
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+            Admin / QR Generator
+          </Link>
+          <Link
+            href="/host/example-door"
+            className="rounded-2xl border border-slate-200 bg-white px-6 py-4 text-center text-slate-950 transition hover:border-slate-300"
           >
-            Documentation
-          </a>
+            Open Host Page
+          </Link>
         </div>
-      </main>
-    </div>
+
+        <div className="mt-10 rounded-2xl bg-slate-100 p-6">
+          <h2 className="text-2xl font-semibold">How it works</h2>
+          <ol className="mt-4 space-y-3 text-slate-700">
+            <li>1. Go to Admin and create a door ID.</li>
+            <li>2. Open the host page for that door ID.</li>
+            <li>3. The visitor scans the QR code and calls the host.</li>
+          </ol>
+        </div>
+      </div>
+    </main>
   );
 }
