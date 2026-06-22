@@ -41,21 +41,30 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (typeof window !== 'undefined') setOrigin(window.location.origin);
-    // load current user and subscribe to auth changes
+    // load current user and subscribe to auth changes (guard when supabase not configured)
     (async () => {
       try {
-        const res = await supabase.auth.getUser();
-        setUser(res?.data?.user ?? null);
+        if (supabase && supabase.auth && typeof supabase.auth.getUser === 'function') {
+          const res = await supabase.auth.getUser();
+          setUser(res?.data?.user ?? null);
+        }
       } catch (e) {
         console.warn('Supabase getUser failed', e);
       }
     })();
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-    }) ?? { data: null };
+    let unsub = null;
+    if (supabase && supabase.auth && typeof supabase.auth.onAuthStateChange === 'function') {
+      const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+        setUser(session?.user ?? null);
+      }) || {};
+      if (data && data.subscription && typeof data.subscription.unsubscribe === 'function') {
+        unsub = () => data.subscription.unsubscribe();
+      }
+    }
+
     return () => {
-      if (sub && sub.subscription) sub.subscription.unsubscribe();
+      if (unsub) unsub();
     };
   }, []);
 
@@ -123,17 +132,38 @@ export default function AdminPage() {
               value={emailForSignIn}
               onChange={(e) => setEmailForSignIn(e.target.value)}
             />
-            <button
-              className="rounded-2xl bg-slate-950 px-4 py-2 text-white"
-              onClick={async () => {
-                if (!emailForSignIn) return alert('Enter an email to sign in');
-                const { error } = await supabase.auth.signInWithOtp({ email: emailForSignIn });
-                if (error) alert('Sign-in failed: ' + error.message);
-                else alert('Check your email for the magic link to sign in.');
-              }}
-            >
-              Sign in (magic link)
-            </button>
+            <div className="flex gap-2">
+              <button
+                className="rounded-2xl bg-slate-950 px-4 py-2 text-white"
+                onClick={async () => {
+                  if (!emailForSignIn) return alert('Enter an email to sign in');
+                  if (!supabase || !supabase.auth || typeof supabase.auth.signInWithOtp !== 'function') {
+                    return alert('Auth is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in your environment.');
+                  }
+                  const { error } = await supabase.auth.signInWithOtp({ email: emailForSignIn });
+                  if (error) alert('Sign-in failed: ' + error.message);
+                  else alert('Check your email for the magic link to sign in.');
+                }}
+              >
+                Sign in (magic link)
+              </button>
+
+              <button
+                className="rounded-2xl bg-white border px-4 py-2 text-slate-900"
+                onClick={async () => {
+                  if (!supabase || !supabase.auth || typeof supabase.auth.signInWithOAuth !== 'function') {
+                    return alert('OAuth is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in your environment.');
+                  }
+                  try {
+                    await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: origin } });
+                  } catch (err) {
+                    alert('Google sign-in failed: ' + (err.message || err));
+                  }
+                }}
+              >
+                Sign in with Google
+              </button>
+            </div>
           </div>
         )}
       </div>
