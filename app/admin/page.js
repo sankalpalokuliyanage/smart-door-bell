@@ -1,159 +1,204 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { QRCodeCanvas } from 'qrcode.react';
+import QRCode from 'qrcode';
 import { supabase } from '../lib/supabaseClient';
 
-function sanitizeForId(s) {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+function sanitizeForId(value) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
 }
 
-async function generateUniqueId(name, address) {
-  let baseId = `${sanitizeForId(name)}_${sanitizeForId(address)}`;
-  if (!baseId) baseId = `door_${Math.random().toString(36).slice(2, 6)}`;
-  let finalId = baseId;
+async function generateUniqueDoorSlug(name) {
+  const baseSlug = sanitizeForId(name) || `door_${Math.random().toString(36).slice(2, 6)}`;
+  let slug = baseSlug;
   let counter = 1;
 
   while (true) {
     const { data, error } = await supabase
-      .from('profiles')
-      .select('unique_door_id')
-      .eq('unique_door_id', finalId)
+      .from('doors')
+      .select('id')
+      .eq('door_id_slug', slug)
       .limit(1);
 
-    if (error) throw error;
-    if (!data || data.length === 0) break;
+    if (error) {
+      throw error;
+    }
 
-    finalId = `${baseId}_${counter}`;
-    counter++;
+    if (!data || data.length === 0) {
+      return slug;
+    }
+
+    slug = `${baseSlug}_${counter}`;
+    counter += 1;
   }
-  return finalId;
 }
 
 export default function AdminPage() {
-  const [doorId, setDoorId] = useState('');
-  const [origin, setOrigin] = useState('http://localhost:3000');
-  const [fullName, setFullName] = useState('');
-  const [address, setAddress] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [origin, setOrigin] = useState('');
   const [user, setUser] = useState(null);
+  const [doors, setDoors] = useState([]);
+  const [selectedDoor, setSelectedDoor] = useState(null);
+  const [doorName, setDoorName] = useState('');
+  const [loading, setLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
 
   useEffect(() => {
-    if (typeof window !== 'undefined') setOrigin(window.location.origin);
-    (async () => {
-      try {
-        if (supabase && supabase.auth && typeof supabase.auth.getUser === 'function') {
-          const res = await supabase.auth.getUser();
-          setUser(res?.data?.user ?? null);
-        }
-      } catch (e) {
-        console.warn('Supabase getUser failed', e);
-      }
-    })();
-
-    let unsub = null;
-    if (supabase && supabase.auth && typeof supabase.auth.onAuthStateChange === 'function') {
-      const { data } = supabase.auth.onAuthStateChange((_event, session) => {
-        setUser(session?.user ?? null);
-      }) || {};
-      if (data && data.subscription && typeof data.subscription.unsubscribe === 'function') {
-        unsub = () => data.subscription.unsubscribe();
-      }
+    if (typeof window !== 'undefined') {
+      setOrigin(window.location.origin);
     }
 
+    const loadUser = async () => {
+      try {
+        if (supabase?.auth?.getUser) {
+          const response = await supabase.auth.getUser();
+          const currentUser = response?.data?.user ?? null;
+          setUser(currentUser);
+
+          if (currentUser) {
+            fetchDoors(currentUser.id);
+          }
+        }
+      } catch (error) {
+        console.warn('Unable to load user', error);
+      }
+    };
+
+    loadUser();
+
+    const authListener = supabase?.auth?.onAuthStateChange((_event, session) => {
+      const currentUser = session?.user ?? null;
+      setUser(currentUser);
+
+      if (currentUser) {
+        fetchDoors(currentUser.id);
+      } else {
+        setDoors([]);
+        setSelectedDoor(null);
+      }
+    });
+
     return () => {
-      if (unsub) unsub();
+      if (authListener?.data?.subscription?.unsubscribe) {
+        authListener.data.subscription.unsubscribe();
+      }
     };
   }, []);
 
-  async function saveUserProfile() {
+  const fetchDoors = async (userId) => {
     try {
-      setLoading(true);
-      setStatusMessage('');
-
-      const authRes = await supabase.auth.getUser();
-      const currentUser = authRes?.data?.user ?? user;
-      if (!currentUser) {
-        setStatusMessage('Please sign in before creating a profile.');
-        setLoading(false);
-        return;
-      }
-
-      const door = await generateUniqueId(fullName || currentUser.user_metadata?.full_name || 'user', address || 'unknown');
-      const { error } = await supabase.from('profiles').upsert(
-        [
-          {
-            id: currentUser.id,
-            full_name: fullName || currentUser.user_metadata?.full_name || null,
-            address: address || null,
-            unique_door_id: door,
-          },
-        ],
-        { onConflict: 'id' }
-      );
+      const { data, error } = await supabase
+        .from('doors')
+        .select('id, door_name, door_id_slug, qr_code_image_url, created_at')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
 
       if (error) {
-        console.error('Error saving profile:', error);
-        setStatusMessage('Failed to save profile: ' + error.message);
-      } else {
-        setDoorId(door);
-        setStatusMessage('QR code generated successfully. Use Add another one to create a new door link.');
+        throw error;
       }
-    } catch (err) {
-      console.error(err);
-      setStatusMessage('Unexpected error: ' + (err.message || err));
+
+      setDoors(data || []);
+      if (data?.length > 0) {
+        setSelectedDoor((prev) => prev || data[0]);
+      }
+    } catch (error) {
+      console.error('Failed to fetch doors:', error);
+      setErrorMessage('Unable to load your doors. Please refresh and try again.');
+    }
+  };
+
+  const handleLogin = async () => {
+    setErrorMessage('');
+    setStatusMessage('');
+
+    try {
+      await supabase.auth.signInWithOAuth({ provider: 'google' });
+    } catch (error) {
+      setErrorMessage(error?.message || 'Google sign-in failed.');
+    }
+  };
+
+  const handleCreateDoor = async () => {
+    if (!user) {
+      setErrorMessage('Please sign in with Google before creating a door.');
+      return;
+    }
+
+    const trimmedDoorName = doorName.trim();
+    if (!trimmedDoorName) {
+      setErrorMessage('Please enter a door name before creating a new door.');
+      return;
+    }
+
+    setLoading(true);
+    setErrorMessage('');
+    setStatusMessage('');
+
+    try {
+      const slug = await generateUniqueDoorSlug(trimmedDoorName);
+      const callUrl = `${origin}/call/${slug}`;
+      const qrDataUrl = await QRCode.toDataURL(callUrl, {
+        type: 'image/png',
+        width: 400,
+        margin: 1,
+      });
+
+      const qrBlob = await (await fetch(qrDataUrl)).blob();
+      const storagePath = `${user.id}/${slug}.png`;
+      const { error: uploadError } = await supabase.storage
+        .from('qrcodes')
+        .upload(storagePath, qrBlob, { contentType: 'image/png', upsert: true });
+
+      if (uploadError) {
+        throw uploadError;
+      }
+
+      const { data: publicData, error: publicUrlError } = await supabase.storage
+        .from('qrcodes')
+        .getPublicUrl(storagePath);
+
+      if (publicUrlError) {
+        throw publicUrlError;
+      }
+
+      const qrCodeImageUrl = publicData?.publicUrl || '';
+
+      const { error: insertError, data: inserted } = await supabase.from('doors').insert(
+        [
+          {
+            user_id: user.id,
+            door_name: trimmedDoorName,
+            door_id_slug: slug,
+            qr_code_image_url: qrCodeImageUrl,
+          },
+        ],
+        { returning: 'representation' }
+      );
+
+      if (insertError) {
+        throw insertError;
+      }
+
+      await fetchDoors(user.id);
+      setSelectedDoor(inserted?.[0] ?? null);
+      setDoorName('');
+      setStatusMessage('Door created successfully. QR code image was saved to Supabase Storage.');
+    } catch (error) {
+      console.error('Failed to create door:', error);
+      setErrorMessage(error?.message || 'Unable to create the door.');
     } finally {
       setLoading(false);
     }
-  }
+  };
 
-  async function addAnotherDoor() {
-    try {
-      setLoading(true);
-      setStatusMessage('');
-
-      const authRes = await supabase.auth.getUser();
-      const currentUser = authRes?.data?.user ?? user;
-      if (!currentUser) {
-        setStatusMessage('Please sign in before creating a new QR.');
-        setLoading(false);
-        return;
-      }
-
-      const door = await generateUniqueId(fullName || currentUser.user_metadata?.full_name || 'user', address || 'unknown');
-      const { error } = await supabase.from('profiles').upsert(
-        [
-          {
-            id: currentUser.id,
-            full_name: fullName || currentUser.user_metadata?.full_name || null,
-            address: address || null,
-            unique_door_id: door,
-          },
-        ],
-        { onConflict: 'id' }
-      );
-
-      if (error) {
-        console.error('Error updating profile:', error);
-        setStatusMessage('Failed to create another QR: ' + error.message);
-      } else {
-        setDoorId(door);
-        setStatusMessage('New QR generated. Your previous door link has been replaced in this profile.');
-      }
-    } catch (err) {
-      console.error(err);
-      setStatusMessage('Unexpected error: ' + (err.message || err));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  const callUrl = `${origin}/call/${doorId}`;
-  const hostUrl = `${origin}/host/${doorId}`;
+  const callUrl = selectedDoor ? `${origin}/call/${selectedDoor.door_id_slug}` : '';
+  const hostUrl = selectedDoor ? `${origin}/host/${selectedDoor.door_id_slug}` : '';
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-4 py-10 text-slate-100">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(14,165,233,0.12),_transparent_38%),radial-gradient(circle_at_bottom_right,_rgba(56,189,248,0.14),_transparent_32%),#020617] text-slate-100">
       <div className="mx-auto max-w-6xl rounded-[32px] border border-slate-800/70 bg-slate-950/95 p-8 shadow-2xl shadow-cyan-500/10">
         <header className="mb-10 grid gap-6 rounded-[28px] border border-cyan-500/10 bg-slate-900/90 p-8 shadow-inner shadow-cyan-500/5 sm:grid-cols-[1.8fr_1fr] sm:items-end">
           <div className="space-y-4">
@@ -206,18 +251,12 @@ export default function AdminPage() {
 
             <div className="rounded-[24px] bg-slate-950/90 p-6 shadow-sm shadow-slate-950/20">
               <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Create your door</p>
-              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <div className="mt-4">
                 <input
-                  className="rounded-[20px] border border-slate-700 bg-slate-900/90 px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-400"
-                  value={fullName}
-                  placeholder="Full name (optional)"
-                  onChange={(e) => setFullName(e.target.value)}
-                />
-                <input
-                  className="rounded-[20px] border border-slate-700 bg-slate-900/90 px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-400"
-                  value={address}
-                  placeholder="Address (optional)"
-                  onChange={(e) => setAddress(e.target.value)}
+                  className="w-full rounded-[20px] border border-slate-700 bg-slate-900/90 px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-400"
+                  value={doorName}
+                  placeholder="Door name (e.g. Main Gate, Office Entrance)"
+                  onChange={(e) => setDoorName(e.target.value)}
                 />
               </div>
 
@@ -225,22 +264,22 @@ export default function AdminPage() {
                 <button
                   className="rounded-full bg-cyan-500 px-6 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
                   type="button"
-                  disabled={loading}
-                  onClick={saveUserProfile}
+                  disabled={loading || !user}
+                  onClick={handleCreateDoor}
                 >
-                  {loading ? 'Saving…' : doorId ? 'Generate QR again' : 'Generate QR'}
+                  {loading ? 'Creating...' : 'Create door and QR'}
                 </button>
                 <button
-                  className="rounded-full border border-slate-700 bg-slate-950 px-6 py-3 text-sm font-semibold text-white transition hover:border-cyan-400 hover:text-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="rounded-full border border-slate-700 bg-slate-950 px-6 py-3 text-sm font-semibold text-white transition hover:border-cyan-400 hover:text-cyan-300 disabled={!user || doors.length === 0}"
                   type="button"
-                  disabled={loading || !doorId}
-                  onClick={addAnotherDoor}
+                  disabled={!user || doors.length === 0}
+                  onClick={() => setSelectedDoor(doors[0] || null)}
                 >
-                  Add another one
+                  Select latest door
                 </button>
               </div>
 
-              <p className="mt-4 text-sm text-slate-400">After creating a QR, the active link is shown in My QRs. If you want a new link, choose Add another one.</p>
+              <p className="mt-4 text-sm text-slate-400">Your door entries are saved in Supabase Storage and can be selected from the door collection.</p>
             </div>
 
             {statusMessage ? (
@@ -257,32 +296,48 @@ export default function AdminPage() {
               <p className="mt-3 text-slate-400">Keep the current door and a polished QR card for visitors.</p>
             </div>
 
-            {doorId ? (
-              <div className="space-y-6 rounded-[28px] border border-cyan-500/10 bg-slate-950/90 p-6 shadow-sm shadow-cyan-500/5">
-                <div className="grid gap-4 rounded-[24px] bg-slate-900/95 p-5">
-                  <div className="flex items-center justify-between gap-4">
+            {selectedDoor ? (
+              <div className="space-y-6 rounded-[28px] border border-cyan-500/15 bg-slate-950/90 p-6 shadow-sm shadow-cyan-500/5">
+                <div className="rounded-[24px] bg-slate-900/95 p-5">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-center">
                     <div>
-                      <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Active Door</p>
-                      <p className="mt-2 text-lg font-semibold text-white break-all">{doorId}</p>
+                      <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Door name</p>
+                      <p className="mt-2 text-lg font-semibold text-white">{selectedDoor.door_name}</p>
                     </div>
-                    <span className="rounded-full bg-cyan-500/10 px-3 py-1 text-xs font-semibold text-cyan-300">Current</span>
+                    <span className="inline-flex rounded-full bg-cyan-500/10 px-3 py-2 text-xs font-semibold text-cyan-300">Active</span>
                   </div>
-                  <div className="rounded-[24px] border border-cyan-500/15 bg-slate-950 p-4 text-slate-300">
-                    <div className="mb-2 text-xs uppercase tracking-[0.3em] text-slate-500">Visitor URL</div>
-                    <div className="break-all text-sm text-white">{callUrl}</div>
+
+                  <div className="mt-5 rounded-[24px] border border-slate-800/60 bg-slate-950/80 p-4 text-slate-300">
+                    <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Visitor URL</p>
+                    <p className="mt-2 break-all text-sm text-white">{callUrl}</p>
                   </div>
                 </div>
 
                 <div className="rounded-[28px] bg-slate-900/95 p-6 text-center shadow-[0_20px_50px_-30px_rgba(14,165,233,0.35)]">
                   <div className="inline-flex rounded-[32px] bg-slate-950 p-5">
-                    <QRCodeCanvas value={callUrl} size={220} bgColor="#020617" fgColor="#38bdf8" level="H" />
+                    <img
+                      className="h-[220px] w-[220px] rounded-[28px] object-contain"
+                      src={selectedDoor.qr_code_image_url}
+                      alt={`QR for ${selectedDoor.door_name}`}
+                    />
                   </div>
-                  <p className="mt-4 text-sm text-slate-400">Scan this QR to call your host page.</p>
+                  <p className="mt-4 text-sm text-slate-400">This QR is saved in Supabase Storage and linked to your door record.</p>
+                </div>
+
+                <div className="grid gap-3 rounded-[24px] border border-slate-800/60 bg-slate-950/80 p-5 text-sm text-slate-300">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-full bg-slate-900/80 px-3 py-1 text-xs uppercase tracking-[0.3em] text-slate-400">Host page</span>
+                    <a className="text-cyan-300 underline break-all" href={hostUrl}>{hostUrl}</a>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-full bg-slate-900/80 px-3 py-1 text-xs uppercase tracking-[0.3em] text-slate-400">Visitor page</span>
+                    <a className="text-cyan-300 underline break-all" href={callUrl}>{callUrl}</a>
+                  </div>
                 </div>
               </div>
             ) : (
               <div className="rounded-[24px] border border-dashed border-slate-700 bg-slate-950/80 p-6 text-slate-400">
-                <p className="text-sm">Your QR cards will appear here after you generate a door link.</p>
+                <p className="text-sm">Select a door from the list to see its QR card and URLs.</p>
               </div>
             )}
           </aside>
