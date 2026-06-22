@@ -36,9 +36,27 @@ export default function AdminPage() {
   const [fullName, setFullName] = useState('');
   const [address, setAddress] = useState('');
   const [loading, setLoading] = useState(false);
+  const [user, setUser] = useState(null);
+  const [emailForSignIn, setEmailForSignIn] = useState('');
 
   useEffect(() => {
     if (typeof window !== 'undefined') setOrigin(window.location.origin);
+    // load current user and subscribe to auth changes
+    (async () => {
+      try {
+        const res = await supabase.auth.getUser();
+        setUser(res?.data?.user ?? null);
+      } catch (e) {
+        console.warn('Supabase getUser failed', e);
+      }
+    })();
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    }) ?? { data: null };
+    return () => {
+      if (sub && sub.subscription) sub.subscription.unsubscribe();
+    };
   }, []);
 
   async function saveUserProfile() {
@@ -46,17 +64,17 @@ export default function AdminPage() {
       setLoading(true);
 
       const authRes = await supabase.auth.getUser();
-      const user = authRes?.data?.user;
-      if (!user) {
+      const currentUser = authRes?.data?.user ?? user;
+      if (!currentUser) {
         alert('Please sign in before creating a profile.');
         setLoading(false);
         return;
       }
 
-      const door = await generateUniqueId(fullName || user.user_metadata?.full_name || 'user', address || 'unknown');
+      const door = await generateUniqueId(fullName || currentUser.user_metadata?.full_name || 'user', address || 'unknown');
 
       const { error } = await supabase.from('profiles').insert([
-        { id: user.id, full_name: fullName || null, address: address || null, unique_door_id: door }
+        { id: currentUser.id, full_name: fullName || null, address: address || null, unique_door_id: door }
       ]);
 
       if (error) {
@@ -81,6 +99,44 @@ export default function AdminPage() {
     <div className="mx-auto max-w-3xl p-6 text-slate-950">
       <h1 className="text-4xl font-semibold">Admin</h1>
       <p className="mt-2 text-slate-600">Generate a door ID and QR code for visitors.</p>
+
+      <div className="mt-4">
+        {user ? (
+          <div className="flex items-center gap-3">
+            <div className="text-sm text-slate-700">Signed in as <strong>{user.email || user.id}</strong></div>
+            <button
+              className="rounded-2xl bg-red-600 px-3 py-1 text-white"
+              onClick={async () => {
+                await supabase.auth.signOut();
+                setUser(null);
+              }}
+            >
+              Sign out
+            </button>
+          </div>
+        ) : (
+          <div className="flex gap-3 items-center">
+            <input
+              className="rounded-2xl border border-slate-300 px-3 py-2"
+              type="email"
+              placeholder="you@example.com"
+              value={emailForSignIn}
+              onChange={(e) => setEmailForSignIn(e.target.value)}
+            />
+            <button
+              className="rounded-2xl bg-slate-950 px-4 py-2 text-white"
+              onClick={async () => {
+                if (!emailForSignIn) return alert('Enter an email to sign in');
+                const { error } = await supabase.auth.signInWithOtp({ email: emailForSignIn });
+                if (error) alert('Sign-in failed: ' + error.message);
+                else alert('Check your email for the magic link to sign in.');
+              }}
+            >
+              Sign in (magic link)
+            </button>
+          </div>
+        )}
+      </div>
 
       <div className="mt-8 grid gap-4 sm:grid-cols-3">
         <input
