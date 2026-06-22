@@ -7,44 +7,57 @@ export default function CallPage({ params }) {
   const { doorId } = params;
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
+  const peerRef = useRef(null);
+  const callRef = useRef(null);
+  const localStreamRef = useRef(null);
   const [status, setStatus] = useState('starting');
   const [error, setError] = useState('');
+  const [callActive, setCallActive] = useState(false);
 
   useEffect(() => {
     if (!doorId) return;
 
     const peer = new Peer();
-    let localStream = null;
-    let currentCall = null;
-    let isMounted = true;
+    peerRef.current = peer;
+    setStatus('connecting');
+    setError('');
 
-    const cleanup = () => {
-      if (currentCall) {
-        currentCall.close();
+    const cleanupLocalStream = () => {
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach((track) => track.stop());
+        localStreamRef.current = null;
       }
-      if (localStream) {
-        localStream.getTracks().forEach((track) => track.stop());
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = null;
       }
-      peer.destroy();
+    };
+
+    const cleanupCall = () => {
+      if (callRef.current) {
+        callRef.current.close();
+        callRef.current = null;
+      }
+      setCallActive(false);
+      cleanupLocalStream();
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = null;
+      }
     };
 
     peer.on('open', () => {
-      if (!isMounted) return;
-      setStatus('connecting');
-
       navigator.mediaDevices.getUserMedia({ video: true, audio: true })
         .then((stream) => {
-          if (!isMounted) return;
-          localStream = stream;
+          localStreamRef.current = stream;
           if (localVideoRef.current) {
             localVideoRef.current.srcObject = stream;
           }
 
           const call = peer.call(doorId, stream);
-          currentCall = call;
+          callRef.current = call;
+          setCallActive(true);
+          setStatus('calling host');
 
           call.on('stream', (remoteStream) => {
-            if (!isMounted) return;
             setStatus('connected');
             if (remoteVideoRef.current) {
               remoteVideoRef.current.srcObject = remoteStream;
@@ -52,11 +65,13 @@ export default function CallPage({ params }) {
           });
 
           call.on('close', () => {
-            setStatus('ended');
+            setStatus('call ended');
+            cleanupCall();
           });
 
           call.on('error', (err) => {
             setError(err?.message || 'Call error');
+            cleanupCall();
           });
         })
         .catch((err) => {
@@ -70,10 +85,28 @@ export default function CallPage({ params }) {
     });
 
     return () => {
-      isMounted = false;
-      cleanup();
+      cleanupCall();
+      peer.destroy();
     };
   }, [doorId]);
+
+  const hangUp = () => {
+    if (callRef.current) {
+      callRef.current.close();
+      callRef.current = null;
+    }
+    if (peerRef.current) {
+      peerRef.current.disconnect();
+    }
+    setStatus('call ended');
+    setCallActive(false);
+    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+    if (localVideoRef.current) localVideoRef.current.srcObject = null;
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach((track) => track.stop());
+      localStreamRef.current = null;
+    }
+  };
 
   return (
     <div className="mx-auto max-w-4xl p-6 text-slate-950">
@@ -82,6 +115,18 @@ export default function CallPage({ params }) {
         Status: <strong>{status}</strong>
       </p>
       {error && <p className="mt-2 text-red-600">Error: {error}</p>}
+
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <span className="rounded-2xl bg-slate-100 px-4 py-2 text-slate-700">Host ID: {doorId}</span>
+        {callActive && (
+          <button
+            className="rounded-2xl bg-red-600 px-4 py-2 text-white"
+            onClick={hangUp}
+          >
+            Hang up
+          </button>
+        )}
+      </div>
 
       <div className="mt-8 grid gap-6 md:grid-cols-2">
         <div>

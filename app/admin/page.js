@@ -133,12 +133,18 @@ export default function AdminPage() {
                 try {
                   await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: origin } });
                 } catch (err) {
-                  alert('Google sign-in failed: ' + (err.message || err));
+                  const message = err?.message || err || 'Unknown error';
+                  if (message.toString().includes('missing OAuth secret') || message.toString().includes('Unsupported provider')) {
+                    alert('Google OAuth is not fully configured. Enable Google provider in Supabase and add the OAuth Client Secret.');
+                  } else {
+                    alert('Google sign-in failed: ' + message);
+                  }
                 }
               }}
             >
               🔑 Sign in with Google
             </button>
+            <p className="mt-2 text-sm text-slate-500">Google sign-in requires Supabase Google provider enabled with Client ID/Secret and your app redirect URL added.</p>
           </div>
         )}
       </div>
